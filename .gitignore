@@ -16,6 +16,7 @@ env/
 htmlcov/
 
 # Env / secrets
+.env.example
 .env
 .env.local
 *.pem

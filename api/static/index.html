@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQL Analyst Agent</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --panel: #f6f7f9;
+    --border: #e2e5ea;
+    --text: #1c1f24;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --ok: #15803d;
+    --warn: #b45309;
+    --err: #b91c1c;
+    --code-bg: #1e2430;
+    --code-text: #e6edf3;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c;
+      --panel: #1b1f26;
+      --border: #2c323c;
+      --text: #e6e9ee;
+      --muted: #98a1b0;
+      --accent: #6ea8fe;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+      --err: #f87171;
+      --code-bg: #0f131a;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; }
+  #health {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #health .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+  }
+  #health.ok .dot { background: var(--ok); }
+  #health.bad .dot { background: var(--err); }
+
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+
+  .empty { color: var(--muted); text-align: center; margin-top: 12vh; }
+  .empty .examples { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .examples button {
+    font: inherit; font-size: 13px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 12px; cursor: pointer;
+  }
+  .examples button:hover { border-color: var(--accent); color: var(--accent); }
+
+  .turn { margin-bottom: 28px; }
+  .question {
+    font-weight: 600;
+    padding: 10px 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .steps { list-style: none; margin: 12px 0 0; padding: 0 0 0 4px; font-size: 13px; }
+  .steps li { display: flex; align-items: center; gap: 8px; padding: 2px 0; color: var(--muted); }
+  .steps .mark { width: 14px; text-align: center; flex: none; }
+  .steps li.done .mark { color: var(--ok); }
+  .steps li.retry .mark { color: var(--warn); }
+  .steps li.pending .mark {
+    display: inline-block;
+    width: 10px; height: 10px; margin: 0 2px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .panel {
+    margin-top: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .panel.bad { border-color: var(--err); }
+  .panel-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    font-size: 12px;
+  }
+  .badge {
+    font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 999px;
+    background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok);
+  }
+  .badge.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .badge.err { background: color-mix(in srgb, var(--err) 15%, transparent); color: var(--err); }
+  .panel-head .meta { color: var(--muted); }
+
+  .answer { padding: 14px; overflow-wrap: anywhere; }
+
+  .section { border-top: 1px solid var(--border); }
+  .section > h3 {
+    display: flex; align-items: center;
+    margin: 0; padding: 8px 14px;
+    font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  .section > h3 button {
+    margin-left: auto;
+    font: inherit; text-transform: none; letter-spacing: 0;
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); padding: 2px 8px; cursor: pointer;
+  }
+  .section > h3 button:hover { color: var(--accent); border-color: var(--accent); }
+
+  pre.sql {
+    margin: 0;
+    padding: 12px 14px;
+    background: var(--code-bg);
+    color: var(--code-text);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .table-scroll { max-height: 420px; overflow: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td {
+    text-align: left;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  th {
+    position: sticky; top: 0;
+    background: var(--panel);
+    font-weight: 600;
+    font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  td.null { color: var(--muted); font-style: italic; }
+  .no-rows { padding: 12px 14px; color: var(--muted); font-size: 13px; }
+
+  footer { border-top: 1px solid var(--border); padding: 14px 20px; }
+  form { max-width: 860px; margin: 0 auto; display: flex; gap: 10px; }
+  #q {
+    flex: 1;
+    font: inherit;
+    padding: 10px 12px;
+    color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  #q:focus { outline: none; border-color: var(--accent); }
+  button[type=submit] {
+    font: inherit; font-weight: 600;
+    padding: 10px 20px;
+    color: #fff; background: var(--accent);
+    border: none; border-radius: 8px; cursor: pointer;
+  }
+  button[type=submit]:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SQL Analyst Agent</h1>
+  <div id="health"><span class="dot"></span><span class="label">checking…</span></div>
+</header>
+
+<main>
+  <div class="wrap" id="transcript">
+    <div class="empty" id="empty">
+      <div>Ask a question about the Northwind database.</div>
+      <div class="examples">
+        <button type="button">Which 5 customers have placed the most orders?</button>
+        <button type="button">Which products have never been ordered?</button>
+        <button type="button">How many orders were placed in each year?</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <form id="form">
+    <input id="q" autocomplete="off" placeholder="e.g. Which product category generated the most revenue?" autofocus>
+    <button type="submit" id="send">Ask</button>
+  </form>
+</footer>
+
+<script>
+const NODE_LABELS = {
+  understand:   "Read schema",
+  generate_sql: "Generated SQL",
+  safety_check: "Passed safety check",
+  validate:     "Validated with EXPLAIN",
+  execute:      "Ran query",
+  synthesize:   "Wrote answer",
+  give_up:      "Gave up",
+};
+
+const STATUS_LABELS = {
+  success:         ["success", ""],
+  unsafe:          ["unsafe query", "err"],
+  retry_exhausted: ["gave up", "err"],
+};
+
+const transcript = document.getElementById("transcript");
+const form = document.getElementById("form");
+const input = document.getElementById("q");
+const send = document.getElementById("send");
+
+const el = (tag, cls, text) => {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+
+/* Parse an SSE byte stream into {event, data} frames. EventSource can't be
+   used here because it only issues GET requests and /query is a POST. */
+async function* readEvents(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let split;
+    while ((split = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      let event = "message";
+      const dataLines = [];
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+      }
+      if (dataLines.length) yield { event, data: JSON.parse(dataLines.join("\n")) };
+    }
+  }
+}
+
+function renderTable(columns, rows) {
+  const cols = columns && columns.length ? columns : Object.keys(rows[0]);
+  const table = el("table");
+
+  const headRow = el("tr");
+  for (const c of cols) headRow.appendChild(el("th", null, c));
+  table.appendChild(el("thead")).appendChild(headRow);
+
+  const tbody = el("tbody");
+  for (const row of rows) {
+    const tr = el("tr");
+    for (const c of cols) {
+      const value = row[c];
+      if (value === null || value === undefined) tr.appendChild(el("td", "null", "NULL"));
+      else if (typeof value === "number") tr.appendChild(el("td", "num", String(value)));
+      else if (typeof value === "object") tr.appendChild(el("td", null, JSON.stringify(value)));
+      else tr.appendChild(el("td", null, String(value)));
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+
+  const scroll = el("div", "table-scroll");
+  scroll.appendChild(table);
+  return scroll;
+}
+
+function section(title, body, copyText) {
+  const wrap = el("section", "section");
+  const heading = el("h3", null, title);
+  if (copyText) {
+    const button = el("button", null, "copy");
+    button.type = "button";
+    button.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(copyText);
+        button.textContent = "copied";
+        setTimeout(() => { button.textContent = "copy"; }, 1200);
+      } catch { button.textContent = "copy failed"; }
+    };
+    heading.appendChild(button);
+  }
+  wrap.appendChild(heading);
+  wrap.appendChild(body);
+  return wrap;
+}
+
+function renderResult(turn, result) {
+  const [statusText, statusClass] = STATUS_LABELS[result.status] || [result.status, "warn"];
+  const panel = el("div", statusClass === "err" ? "panel bad" : "panel");
+
+  const head = el("div", "panel-head");
+  head.appendChild(el("span", "badge " + statusClass, statusText));
+  const bits = [];
+  if (result.retry_count) bits.push(result.retry_count + (result.retry_count === 1 ? " retry" : " retries"));
+  if (result.status === "success") {
+    const n = (result.result_rows || []).length;
+    bits.push(n === 1 ? "1 row" : n + " rows");
+  }
+  if (bits.length) head.appendChild(el("span", "meta", bits.join(" · ")));
+  panel.appendChild(head);
+
+  panel.appendChild(el("div", "answer", result.answer || "(no answer returned)"));
+
+  if (result.final_sql) {
+    panel.appendChild(section("SQL", el("pre", "sql", result.final_sql), result.final_sql));
+  }
+  if (result.result_rows && result.result_rows.length) {
+    panel.appendChild(section("Results", renderTable(result.result_columns, result.result_rows)));
+  } else if (result.status === "success") {
+    panel.appendChild(section("Results", el("div", "no-rows", "Query returned no rows.")));
+  }
+
+  turn.appendChild(panel);
+}
+
+function renderError(turn, message) {
+  const panel = el("div", "panel bad");
+  const head = el("div", "panel-head");
+  head.appendChild(el("span", "badge err", "error"));
+  panel.appendChild(head);
+  panel.appendChild(el("div", "answer", message));
+  turn.appendChild(panel);
+}
+
+async function ask(question) {
+  document.getElementById("empty")?.remove();
+
+  const turn = el("div", "turn");
+  turn.appendChild(el("div", "question", question));
+  const steps = el("ol", "steps");
+  const spinner = el("li", "pending");
+  spinner.appendChild(el("span", "mark"));
+  spinner.appendChild(el("span", null, "Working…"));
+  steps.appendChild(spinner);
+  turn.appendChild(steps);
+  transcript.appendChild(turn);
+
+  const scrollDown = () => turn.scrollIntoView({ block: "end", behavior: "smooth" });
+  scrollDown();
+
+  input.disabled = send.disabled = true;
+  const seen = {};
+
+  try {
+    const response = await fetch("/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, stream: true }),
+    });
+    if (!response.ok) throw new Error(`Server returned ${response.status} ${response.statusText}`);
+
+    let gotTerminal = false;
+    for await (const { event, data } of readEvents(response)) {
+      if (event === "progress") {
+        const attempt = (seen[data.node] = (seen[data.node] || 0) + 1);
+        const step = el("li", attempt > 1 ? "done retry" : "done");
+        step.appendChild(el("span", "mark", "✓"));
+        const label = NODE_LABELS[data.node] || data.node;
+        step.appendChild(el("span", null, attempt > 1 ? `${label} (attempt ${attempt})` : label));
+        steps.insertBefore(step, spinner);
+        scrollDown();
+      } else if (event === "result") {
+        gotTerminal = true;
+        renderResult(turn, data);
+      } else if (event === "error") {
+        gotTerminal = true;
+        renderError(turn, data.message || "The agent failed.");
+      }
+    }
+    if (!gotTerminal) throw new Error("The stream ended before returning a result.");
+  } catch (err) {
+    renderError(turn, err.message || String(err));
+  } finally {
+    spinner.remove();
+    input.disabled = send.disabled = false;
+    input.focus();
+    scrollDown();
+  }
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const question = input.value.trim();
+  if (!question) return;
+  input.value = "";
+  ask(question);
+});
+
+transcript.addEventListener("click", (event) => {
+  const chip = event.target.closest(".examples button");
+  if (chip) ask(chip.textContent);
+});
+
+(async () => {
+  const health = document.getElementById("health");
+  const label = health.querySelector(".label");
+  try {
+    const { status, database } = await (await fetch("/health")).json();
+    health.className = status === "ok" ? "ok" : "bad";
+    label.textContent = "database " + database;
+  } catch {
+    health.className = "bad";
+    label.textContent = "api unreachable";
+  }
+})();
+</script>
+
+</body>
+</html>

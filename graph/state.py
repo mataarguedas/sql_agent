@@ -7,7 +7,9 @@ input in place, and no node holds internal state of its own.
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Literal, TypedDict
+
+RunStatus = Literal["success", "unsafe", "retry_exhausted"]
 
 
 class AgentState(TypedDict, total=False):
@@ -27,3 +29,15 @@ class AgentState(TypedDict, total=False):
     answer: str
     final_sql: str
     failed: bool
+
+
+def run_status(state: AgentState) -> RunStatus:
+    """Classify a terminal ``AgentState`` into the run status used everywhere.
+
+    This is the single source of truth for the three statuses in PRD §5/§7 —
+    the API response, the LangSmith run tag, and any future reporting all
+    derive from it, so they can never disagree.
+    """
+    if not state.get("failed"):
+        return "success"
+    return "unsafe" if state.get("safety_passed") is False else "retry_exhausted"

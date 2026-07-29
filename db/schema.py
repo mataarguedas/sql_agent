@@ -54,3 +54,10 @@ def get_schema_context(question: str) -> str:
     relevant = [t for t in all_tables if _table_matches(t, tokens)]
     tables = relevant or all_tables
     return db.get_table_info(table_names=tables)
+
+
+def get_full_schema_info() -> dict[str, str | list[str]]:
+    """Return every usable table name plus the full schema text, for ``GET /schema``."""
+    db = get_sql_database()
+    tables = db.get_usable_table_names()
+    return {"tables": tables, "schema": db.get_table_info(table_names=tables)}

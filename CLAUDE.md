@@ -144,3 +144,10 @@ pytest tests/test_safety.py -v   # safety guard only
 - Don't put logic in `api/` — keep it a thin adapter over the graph.
 - Don't remove or short-circuit `safety_check`, and don't retry on safety failures.
 - Don't fabricate rows or values in `synthesize` or `give_up`.
+
+## Documentation
+
+This project uses LangChain/LangGraph. Before writing or modifying any
+LangChain/LangGraph code, call the `langgraph-docs` MCP tools to fetch
+the relevant current documentation. Do not rely on training data for
+LangChain APIs — imports and APIs change frequently.

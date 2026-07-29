@@ -11,10 +11,9 @@ import os
 from functools import lru_cache
 
 from dotenv import load_dotenv
-from sqlalchemy import event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine.url import make_url
-from sqlalchemy import create_engine
 
 load_dotenv()
 
@@ -65,3 +64,17 @@ def get_admin_engine() -> Engine:
     """
     url = make_url(_require_url("DATABASE_ADMIN_URL"))
     return create_engine(url, pool_pre_ping=True, future=True)
+
+
+def check_readonly_connectivity() -> bool:
+    """Return True if the read-only role can open a connection and run a trivial query.
+
+    Used by ``GET /health`` to confirm DB connectivity without leaking
+    connection details to the API layer.
+    """
+    try:
+        with get_readonly_engine().connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False

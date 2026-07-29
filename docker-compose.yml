@@ -9,13 +9,30 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Postgres runs /docker-entrypoint-initdb.d/*.sql in filename order, only
+      # on first boot against an empty data directory. The numeric prefixes
+      # force schema+seed to load before the read-only role is granted access
+      # to the tables it creates (see db/init/create_readonly_role.sql).
+      - ./db/init/northwind.sql:/docker-entrypoint-initdb.d/01_northwind.sql:ro
+      - ./db/init/create_readonly_role.sql:/docker-entrypoint-initdb.d/02_create_readonly_role.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d northwind"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   app:
     build: .
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     env_file:
       - .env
+    environment:
+      # Override the .env host (localhost, for running the app outside
+      # Docker) with the in-network service name.
+      DATABASE_ADMIN_URL: postgresql+psycopg://postgres:postgres@postgres:5432/northwind
+      DATABASE_READONLY_URL: postgresql+psycopg://sql_agent_ro:readonly@postgres:5432/northwind
     ports:
       - "8000:8000"
 
