@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 import api.main as main
 from api.serializers import sse_event
+from tests.conftest import TEST_AUTH_PASSWORD, TEST_AUTH_USERNAME, current_totp_code
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -79,7 +80,18 @@ SUCCESS_UPDATES: list[dict[str, dict[str, Any]]] = [
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(main.app)
+    """A ``TestClient`` already signed in — every route below /login is auth-gated."""
+    c = TestClient(main.app)
+    response = c.post(
+        "/login",
+        data={
+            "username": TEST_AUTH_USERNAME,
+            "password": TEST_AUTH_PASSWORD,
+            "code": current_totp_code(),
+        },
+    )
+    assert response.status_code == 200, "test login failed, fixture cannot authenticate"
+    return c
 
 
 # --------------------------------------------------------------------------- #
@@ -249,6 +261,28 @@ def test_index_serves_the_chat_page(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert "<title>SQL Analyst Agent</title>" in response.text
+
+
+def test_index_redirects_to_login_when_signed_out() -> None:
+    response = TestClient(main.app).get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_query_requires_auth_when_signed_out() -> None:
+    response = TestClient(main.app).post("/query", json={"question": "q"})
+    assert response.status_code == 401
+
+
+def test_schema_requires_auth_when_signed_out() -> None:
+    response = TestClient(main.app).get("/schema")
+    assert response.status_code == 401
+
+
+def test_health_is_public() -> None:
+    """Unlike every other route, /health stays unauthenticated for container healthchecks."""
+    response = TestClient(main.app).get("/health")
+    assert response.status_code == 200
 
 
 def test_page_targets_the_endpoints_and_events_the_api_actually_emits() -> None:

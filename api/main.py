@@ -10,9 +10,11 @@ import logging
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import Depends, FastAPI, Form, Request
+from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
+from starlette.middleware.sessions import SessionMiddleware
 
+from api import auth
 from api.serializers import (
     QueryRequest,
     QueryResponse,
@@ -29,6 +31,13 @@ from graph.tracing import traced_run
 logger = logging.getLogger(__name__)
 
 app: FastAPI = FastAPI(title="SQL Analyst Agent")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=auth.session_secret_key(),
+    max_age=auth.session_max_age_seconds(),
+    same_site="lax",
+    https_only=auth.cookie_is_secure(),
+)
 
 _graph = build_graph()
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -55,15 +64,56 @@ async def _stream_query(question: str) -> AsyncIterator[str]:
         yield sse_event("error", {"message": str(exc)})
 
 
+@app.get("/login", include_in_schema=False)
+async def login_page() -> FileResponse:
+    """Serve the login form. Public — this is the only unauthenticated page."""
+    return FileResponse(_STATIC_DIR / "login.html")
+
+
+@app.post("/login", include_in_schema=False)
+async def login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    code: str = Form(...),
+) -> RedirectResponse:
+    """Verify username + password + TOTP code and start a session on success."""
+    client_key = request.client.host if request.client else "unknown"
+
+    if auth.rate_limited(client_key):
+        return RedirectResponse("/login?error=rate_limited", status_code=303)
+
+    if auth.verify_credentials(username, password, code):
+        auth.clear_attempts(client_key)
+        auth.log_in(request)
+        return RedirectResponse("/", status_code=303)
+
+    auth.record_failed_attempt(client_key)
+    return RedirectResponse("/login?error=invalid", status_code=303)
+
+
+@app.post("/logout", include_in_schema=False)
+async def logout(request: Request) -> RedirectResponse:
+    auth.log_out(request)
+    return RedirectResponse("/login", status_code=303)
+
+
 @app.get("/", include_in_schema=False)
-async def index() -> FileResponse:
-    """Serve the single-page chat UI."""
+async def index(request: Request) -> Response:
+    """Serve the single-page chat UI, or bounce to /login if not signed in."""
+    if not auth.is_authenticated(request):
+        return RedirectResponse("/login", status_code=303)
     return FileResponse(_STATIC_DIR / "index.html")
 
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
-    """Return service status and read-only DB connectivity."""
+    """Return service status and read-only DB connectivity.
+
+    Deliberately public (unlike every other route) — the Docker
+    HEALTHCHECK and any orchestrator liveness probe hit this
+    unauthenticated, and it leaks nothing beyond up/down + DB reachability.
+    """
     db_connected = check_readonly_connectivity()
     return {
         "status": "ok" if db_connected else "degraded",
@@ -71,13 +121,13 @@ async def health() -> dict[str, Any]:
     }
 
 
-@app.get("/schema")
+@app.get("/schema", dependencies=[Depends(auth.require_session)])
 async def schema() -> dict[str, Any]:
     """Return the introspected table/column listing used for generation."""
     return get_full_schema_info()
 
 
-@app.post("/query", response_model=None)
+@app.post("/query", response_model=None, dependencies=[Depends(auth.require_session)])
 async def query(payload: QueryRequest) -> QueryResponse | StreamingResponse:
     """Run a natural-language question through the agent.
 

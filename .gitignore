@@ -20,6 +20,7 @@ htmlcov/
 .env
 .env.local
 *.pem
+auth_qr_code.png
 
 # IDE / OS
 .idea/
