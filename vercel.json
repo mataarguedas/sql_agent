@@ -4,10 +4,5 @@
   ],
   "routes": [
     { "src": "/(.*)", "dest": "api/main.py" }
-  ],
-  "functions": {
-    "api/main.py": {
-      "maxDuration": 60
-    }
-  }
+  ]
 }
