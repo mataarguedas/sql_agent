@@ -1,0 +1,46 @@
+SQL Analyst Agent — command sequence to run the app
+=====================================================
+
+0. One-time setup (already done if .venv/ and .env exist)
+-----------------------------------------------------------
+pip install -e ".[dev]"
+python -m scripts.setup_auth        # only if you don't have login credentials yet
+                                     # prints AUTH_USERNAME / AUTH_PASSWORD_HASH_B64 /
+                                     # AUTH_TOTP_SECRET to paste into .env, and writes
+                                     # auth_qr_code.png to scan into your authenticator app
+
+1. Start Docker Desktop (if it isn't already running)
+-----------------------------------------------------------
+Launch Docker Desktop and wait for the whale icon to say "running".
+
+2. Start Postgres (Northwind + read-only role)
+-----------------------------------------------------------
+docker compose up -d postgres
+docker compose ps                   # wait until STATUS shows "healthy"
+
+3. Run the test suite
+-----------------------------------------------------------
+pytest -q
+
+4. Run a single question from the CLI (no server)
+-----------------------------------------------------------
+python -m graph.build --question "Top 5 customers by number of orders"
+
+5. Run the API server
+-----------------------------------------------------------
+uvicorn api.main:app --reload
+
+6. Use the app
+-----------------------------------------------------------
+Open http://localhost:8000/login in a browser, sign in with your
+username / password / TOTP code, then use the chat UI at
+http://localhost:8000/ (POST /query under the hood).
+
+curl checks (optional):
+curl http://localhost:8000/health   # {"status":"ok","database":"connected"}, no auth needed
+                                     # /schema and /query require a logged-in session
+
+7. Shut down
+-----------------------------------------------------------
+Ctrl+C the uvicorn process
+docker compose down                 # stop Postgres (add -v to also wipe the DB volume)
